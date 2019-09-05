@@ -1,37 +1,444 @@
-## Welcome to GitHub Pages
+## The cl-sandbox Package
 
-You can use the [editor on GitHub](https://github.com/lisper99/cl-sandbox/edit/master/README.md) to maintain and preview the content for your website in Markdown files.
+The cl-sandbox package can simulate all Common Lisp and uiop file
+system operations before actually performing them on disk.
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
 
-### Markdown
+It features
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
+* A virtual file system
+* Contracts for all file system operations
+* A whitelist mechanism for extra safety
+* A driver for automated random testing
 
-```markdown
-Syntax highlighted code block
 
-# Header 1
-## Header 2
-### Header 3
+Some applications are
 
-- Bulleted
-- List
+* Catch errors before they occur
+* Limit code access to parts of a disk
+* Test code automatically with contracts
+* Test conformance of Common Lisp implementations
 
-1. Numbered
-2. List
 
-**Bold** and _Italic_ and `Code` text
+The sandbox assumes a single process with complete control over the
+accessed files and directories. Transactions or safety for concurrent
+processes is beyond the scope of this package.
 
-[Link](url) and ![Image](src)
+
+### Basic Usage
+
+Macro `with-sandbox` runs its body in a sandbox. It expects a
+directory as argument, creates a virtual file system, populates it
+with the contents of the directory and simulates the actions. If the
+body's actions succeed they are executed for real. Consider the
+following example.
+
+```
+(setf code-dir
+      (merge-pathnames "my-project/src/" (user-homedir-pathname)))
+
+(cl-sandbox:with-sandbox (code-dir)
+  (cl-sandbox:delete-file (merge-pathnames "foo.bu" code-dir))
+  (cl-sandbox:copy-file (merge-pathnames "foo.lisp" code-dir)
+                        (merge-pathnames "foo.bu" code-dir)))
 ```
 
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
+If file foo.lisp exists this code runs fine, but if it doesn't exist
+the script will fail during the copy action.  At that point file
+foo.bu was already deleted. This error is caught during the simulation
+and file foo.bu on disk will still be there.
 
-### Jekyll Themes
 
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/lisper99/cl-sandbox/settings). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
 
-### Support or Contact
+### Working with Sandboxes
 
-Having trouble with Pages? Check out our [documentation](https://help.github.com/categories/github-pages-basics/) or [contact support](https://github.com/contact) and we’ll help you sort it out.
+To work with sandboxes simply replace calls to file system functions
+by the shadowed version. For example
+
+`(delete-file "foo.lisp")`
+
+becomes 
+
+`(cl-sandbox:delete-file "foo.lisp")`
+
+Normally the shadowed version simply calls the original function, but
+in the context of a sandbox it can also call the sandbox version. The
+sandbox versions of the file system operations can manipulate files and
+directories, but don't store any data. Any data that is written to a file
+is disregarded and cannot be read back.
+
+
+Macro `with-sandbox` sets up a new sandbox containing a virtual file
+system. It has various parameters that determine how the actions in its
+body behave. The following code shows all parameters and their default
+values.
+
+```
+(cl-sandbox:with-sandbox (code-dir
+                          :kind :both     ;; or :execute, or :simulate
+                          :test-pre t
+                          :test-post nil
+                          :test-diff nil
+                          :confine t))
+  (cl-sandbox:delete-file "foo.lisp"))
+```
+
+
+Option `:kind` can be `:both`, `:execute` or `:simulate`. Default
+option `:both` corresponds with the behavior described so far where
+the body is first simulated before it is executed. When the option is
+`:execute` the body is immediately executed without simulation. This
+is equivalent to running the code directlty without `with-sandbox`. If
+the option is `:simulate` the body is only simulated and not executed.
+
+
+The pre-conditions of actions are tested when `:test-pre` has a
+non-nil value. An error is thrown when a pre-condition fails.
+
+
+The post-conditions of actions are tested when `:test-post` has a
+non-nil value. An error is thrown when a post-condition fails.
+
+
+The difference conditions of actions are tested when `:test-diff` has a
+non-nil value. An error is thrown when a difference condition
+fails. See the section on contracts below for an explanation of the
+difference conditions.
+
+
+The actions are limited to the directory when `:confine` has a non-nil
+value. An error is thrown when a file or directory outside the
+directory or any of its subdirectories is accessed.
+
+
+The parameters correspond with global variables `*test-pre*`,
+`*test-post*`, `*test-diff*` and `*confine*`. The macro binds the
+global variables and all actions and observers react to them. The
+sandbox is bound to variable `*sandbox*`. Whether code is simulated or
+executed is controlled by variable `*simulate*`.  To limit access the
+macro adds the directory to global `*whitelist*`. Use this variable or
+macro `with-access` from the next section to further control access.
+
+
+
+### Limiting Disk Access
+
+Access to disk is limited by the list of pathnames in special variable
+`*whitelist*`. Every shadowed function checks every access to disk
+against this whitelist and throws an error if a path is not a subpath
+of one of `*whitelist*`'s paths.
+
+Macro `with-sandbox` adds the directory that was passed to it to the
+whitelist.  With macro `with-access` extra directories can be
+added. For example in the following code function `copy-file` has
+access to `dir-a` and `dir-b`.
+
+```
+(cl-sandbox:with-sandbox (dir-a)
+  (cl-sandbox:with-access dir-b
+    (cl-sandbox:copy-file (merge-pathnames "foo.lisp" dir-a)
+                          (merge-pathnames "foo.lisp" dir-b)))
+```
+
+Macro `with-access` is useful to give extra access without simply
+giving a less restrictive path to `with-sandbox`. For performance and
+security reasons it is best to limit access to directories as deep as
+possible. With macro `with-access` extra access is possible if
+needed. Use `*white-list*` directly for even more control.
+
+
+
+### Define Your Own Contracts
+
+Code that reads from file cannot be run in a sandbox. In that case you
+can define your own action with macro `defaction`.
+
+The virtual file system can simulate file system manipulations but
+since it does not store any file contents it cannot do any
+reading. Writing is supported, but the written data is simply
+disregarded and cannot be read back. This means that actions cannot be
+simulated if they depend on the contents of the file system. For some
+situations a useful pattern is to make a plan outside the sandbox and
+next run that plan inside a sandbox. But for functions that read file
+contents this is not sufficient. For such functions a contract can be
+defined with macro `defaction`.
+
+
+Consider the following code that reads the contents of file `in`,
+ converts it and writes the result in file `out` if necessary.
+
+```
+(when (dirty-p in out)
+  (with-open-file (s out
+                     :direction :output
+                     :if-does-not-exist :create
+                     :if-exists :supersede)
+    (write-converted (read-contents in) s)))
+```
+
+Functions `read-contents` and `write-converted` are problematic for a
+simulation.  Since function `dirty-p` does not read the file it can
+still be implemented. We will do that in the next section. In this
+section we will define an action to convert a file and call `dirty-p`
+outside the sandbox as follows.
+
+```
+(when (dirty-p in out)
+  (with-sandbox (dir)
+    (convert-file in out)))
+```
+
+Macro `defaction` expects a name and arguments and defines a function
+just like macro `defun`, but instead of a body it expects four bodies,
+one for the pre-condition, one for the body, one for the
+post-condition and one for the difference condition. A difference
+condition is a special post-condition that compares before and after
+snapshots of the file system.  One possible action definition for the
+previous code is:
+
+```
+(cl-sandbox:defaction convert-file (in out)
+  "Reads the contents of file in, converts it and writes the result in
+  file out."
+
+  (:pre-condition
+   (and (cl-sandbox:file-exists-p in)
+        (not (cl-sandbox:file-exists-p out))
+        (not (cl-sandbox:directory-exists-p out))
+        (cl-sandbox:directory-exists-p
+         (uiop:pathname-directory-pathname out))))
+
+  (:body
+   (cl-sandbox:with-open-file (s out
+                               :direction :output
+                               :if-does-not-exist :create)
+     (when (cl-sandbox:execute-p)
+       (write-converted (read-contents in) s)))
+   (values))
+
+  (:post-condition
+   (declare (ignore in))
+   (lambda () (cl-sandbox:file-exists-p out)))
+
+  (:difference
+   (declare (ignore in))
+    (lambda ()
+      (lambda (removed added)
+        (and (null removed)
+             (equal added (list (cl-sandbox:truename out))))))))
+```
+
+The code defines action `convert-file` that expects arguments `in` and
+`out`.
+
+
+The pre-condition is a logical expression that is called before the
+action body. In this case it tests that the output file does not
+already exist and that the output file's directory does exist.
+
+
+The action body is the actual function body. Inside the body function
+`execute-p` and `simulate-p` can be used to test if the action is
+executed or simulated. They test whether `*simulate*` is nil or
+not. In this case `execute-p` is used to skip reading and writing the
+file. During a simulation the file is still created but the
+problematic reading and writing is skipped. In this way function
+`convert-file` is made suitable for calls from a sandbox.
+
+
+The post-condition is a function that expects the action body's
+result. It is called before the action's body, and the outcome is
+applied to the action body's result. The function is a logical
+expression that tests the success of the action. In this case the
+action returns no value so the function's argument list is empty. The
+condition tests that the file exists.
+
+
+In a difference condition the logical expression is replaced by a
+function of two arguments, one for the files that were removed during
+the action, and one for the files that were added. The function is a
+logical expression that test whether this difference in the file
+system is correct. In this case it tests that no files are removed and
+that only the created file is added.
+
+
+With the contract defined function `convert-file` can now be called
+from inside a sandbox and can also be tested automatically.
+
+
+
+### Another Contract Example
+
+The action from the previous section was relatively simple, but you
+often encounter situations were the conditions need to remember some
+state. An example is when the dirty test is added to the function.
+
+
+Function `dirty-p` does not read file contents and can be implemented
+with sandbox functions. A possible implementation is:
+
+```
+(defun dirty-p (in out)
+  (if (cl-sandbox:file-exists-p in)
+      (or (not (cl-sandbox:file-exists-p out))
+          (< (cl-sandbox:file-write-date out)
+             (cl-sandbox:file-write-date in)))
+      (error 'file-error :pathname in)))
+```
+
+This functions works fine outside a sandbox as in the previous
+section, but because it uses sandbox functions it can also be called
+from within a sandbox. In this case we use it inside function
+`convert-file` and return a non-nil value if the file was written and
+nil otherwise. A possible definition is as follows.
+
+```
+(defaction convert-file (in out)
+  "Reads the contents of file in, converts it and writes the result in
+  file out."
+
+  (:pre-condition
+   (and (file-exists-p in)
+        (directory-exists-p
+         (uiop:pathname-directory-pathname out))))
+
+  (:body
+   (handler-case
+       (when (dirty-p in out)
+         (with-open-file (s out
+                            :direction :output
+                            :if-does-not-exist :create
+                            :if-exists :supersede)
+           (when (execute-p)
+             (write-converted (read-contents in) s)))
+         t)
+     (file-error () nil)))
+
+  (:post-condition
+   (let ((needed-update (dirty-p in out)))
+     (lambda (result)
+       (and (implies result needed-update)
+            (implies result (file-exists-p out))))))
+
+  (:difference
+   (declare (ignore in))
+    (let ((existed (file-exists-p out)))
+      (lambda (result)
+        (lambda (removed added)
+          (and (null removed)
+               (if (and result (not existed))
+                   (equal added (list (truename out)))
+                   (null added))))))))
+```
+
+This versions differs at various points with the previous version. The
+pre-condition no longer requires that the file does not exist. The
+body only create the file when necessary and returns a non-nil value
+if it did. The post-condition now gets a result. To test it, it needs
+to remember if the file was dirty or not. The difference condition now
+needs to remember whether the file existed or not.
+
+
+
+### Random Testing
+
+The package contains a test driver for automated random testing. This
+is (not yet) exported. See directory /cl-sandbox/test/ in the source code.
+
+
+
+### List of Shadowed Functions
+
+Common Lisp actions 
+
+* `close`
+* `compile-file`
+* `delete-file`
+* `ensure-directories-exist`
+* `open`
+* `rename-file`
+
+
+Common Lisp observers
+
+* `directory`
+* `file-author`
+* `file-length`
+* `file-position`
+* `file-write-date`
+* `probe-file`
+* `truename`
+
+
+Uiop actions
+
+* `chdir`
+* `combine-fasls`
+* `compile-file*`
+* `concatenate-files`
+* `copy-file`
+* `delete-directory-tree`
+* `delete-empty-directory`
+* `delete-file-if-exists`
+* `ensure-all-directories-exist`
+* `ensure-pathname`
+* `rename-file-overwriting-target`
+* `save-deferred-warnings`
+
+
+Uiop observers
+
+* `collect-sub*directories`
+* `directory*`
+* `directory-exists-p`
+* `directory-files`
+* `file-exists-p`
+* `getcwd`
+* `parse-file-location-info`
+* `parse-windows-shortcut`
+* `probe-file*`
+* `resolve-symlinks`
+* `resolve-symlinks*`
+* `safe-file-write-date`
+* `subdirectories`
+* `truename*`
+* `truenamize`
+
+
+
+### Status
+
+The implemented shadowed functions just test access and redirect to the
+underlying implementation. This should work without any problems. A few
+functions are still missing.
+
+The constracts is work in progress. Requires more testing. Main
+question at this moment is how to implement `open-file-p`.
+
+The test case generator works, but is still basic.
+
+The virtual file system misses some features.
+
+Some stream write functions have been implemented, but this is not
+worked on at the moment.
+
+
+
+### Links
+
+Relevant HyperSpec links:
+
+* [20.2 The Files Dictionary](http://www.lispworks.com/documentation/HyperSpec/Body/c_files.htm)
+* [21.2 The Streams Dictionary](http://www.lispworks.com/documentation/HyperSpec/Body/c_stream.htm)
+* [24.2 The System Construction Dictionary](http://www.lispworks.com/documentation/HyperSpec/Body/c_system.htm)
+
+
+Relevant uiop links:
+
+* [6 UIOP/OS](https://common-lisp.net/project/asdf/uiop.html#UIOP_002fOS)
+* [7 UIOP/Pathname](https://common-lisp.net/project/asdf/uiop.html#UIOP_002fPATHNAME)
+* [8 UIOP/Filesystem](https://common-lisp.net/project/asdf/uiop.html#UIOP_002fFILESYSTEM)
+* [9 UIOP/Stream](https://common-lisp.net/project/asdf/uiop.html#UIOP_002fSTREAM)
+* [11 UIOP/Lisp-build](https://common-lisp.net/project/asdf/uiop.html#UIOP_002fLISP_002dBUILD)
+
+Paul Griffioen, 2019
