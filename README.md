@@ -293,7 +293,7 @@ from within a sandbox. In this case we use it inside function
 nil otherwise. A possible definition is as follows.
 
 ```
-(defaction convert-file (in out)
+(cl-sandbox:defaction convert-file (in out)
   "Reads the contents of file in, converts it and writes the result in
   file out."
 
@@ -412,7 +412,7 @@ The implemented shadowed functions just test access and redirect to the
 underlying implementation. This should work without any problems. A few
 functions are still missing.
 
-The constracts is work in progress. Requires more testing. Main
+The contracts is work in progress. Requires more testing. Main
 question at this moment is how to implement `open-file-p`.
 
 The test case generator works, but is still basic.
@@ -442,3 +442,4 @@ Relevant uiop links:
 * [11 UIOP/Lisp-build](https://common-lisp.net/project/asdf/uiop.html#UIOP_002fLISP_002dBUILD)
 
 Paul Griffioen, 2019
+pgriffel@gmail
