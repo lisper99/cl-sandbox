@@ -24,6 +24,8 @@ The sandbox assumes a single process with complete control over the
 accessed files and directories. Transactions or safety for concurrent
 processes is beyond the scope of this package.
 
+THE PACKAGE IS STILL EXPERIMENTAL AND UNDER DEVELOPMENT. USE AT YOUR OWN RISK!!!
+
 
 ### Basic Usage
 
