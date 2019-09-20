@@ -549,10 +549,11 @@
    (validate-access to)
    (validate-access from)
    (if (execute-p)
-       (handler-case
-           (progn (uiop:copy-file from to) t)
-         (file-error () nil))
-       ;;(uiop:copy-file from to)
+       (if nil
+           (handler-case
+               (progn (uiop:copy-file from to) t)
+             (file-error () nil))
+           (uiop:copy-file from to))
        (sandbox-copy-file *sandbox* from to)))
   
   (:post-condition
@@ -882,3 +883,173 @@ global *opened-test-streams*."
     :if-exists if-exists
     :if-does-not-exist if-does-not-exist
     :external-format external-format)))
+
+;; ----------------------------------------------------------------------------
+;; Extra: copy-directory
+;; ----------------------------------------------------------------------------
+
+(defaction copy-directory (from to)
+  "Copy a directory"
+   
+  (:pre-condition
+   (and (directory-exists-p from)
+        (not (probe-file to))))
+  
+  (:body
+   (collect-sub*directories
+    from
+    (lambda (dir) (declare (ignore dir)) t)
+    (lambda (dir) (declare (ignore dir)) t)
+    (lambda (dir)
+      (loop
+         with dst = (merge-pathnames (enough-namestring dir from) to)
+         initially (ensure-directories-exist dst)
+         for file in (directory-files dir)
+         for enough = (enough-namestring file from)
+         do (copy-file file (merge-pathnames enough to))))))
+  
+  (:post-condition
+   (declare (ignore from to))
+   (lambda (result)
+     (declare (ignore result))
+     t))
+  
+  (:difference
+   (declare (ignore from to))
+   (lambda (result)
+     (declare (ignore result))
+     t)))
+
+;; ----------------------------------------------------------------------------
+;; Extra: zip/unzip
+;;
+;; untested
+;; ----------------------------------------------------------------------------
+
+(defaction zip-directory (directory filespec)
+  "Zips the directory to zip file filespec. Paths are stored relative
+to the directory."
+   
+  (:pre-condition
+   (and (directory-exists-p directory)
+        (not (probe-file filespec))))
+  
+  (:body
+   (validate-access directory)
+   (validate-access filespec)
+   (when (file-exists-p filespec)
+     (error 'file-error :pathname (pathname filespec)))
+   (if (execute-p)
+       (zip:zip filespec directory)
+       (create-file filespec))
+   t)
+  
+  (:post-condition
+   (lambda (result)
+     (and result
+          (file-exists-p filespec)
+          (implies (execute-p)
+                   (correct-zip-mirror filespec directory)))))
+  
+  (:difference
+   (declare (ignore directory))
+   (lambda (result)
+     (lambda (removed added)
+       (and result
+            (null removed)
+            (equal added (list (truename filespec))))))))
+
+(defaction unzip-file (zipfile directory)
+  "Unzips the zip file zipfile in directory."
+   
+  (:pre-condition
+   (and (file-exists-p zipfile)
+        (directory-exists-p directory)))
+  
+  (:body
+   (validate-access zipfile)
+   (validate-access directory)
+   (when (execute-p)
+     (zip:unzip zipfile directory))
+   t)
+  
+  (:post-condition
+   (lambda (result)
+     (and result
+          (implies (execute-p)
+                   (correct-zip-mirror zipfile directory)))))
+  
+  (:difference
+   (declare (ignore zipfile directory))
+   (lambda (result)
+     (lambda (removed added)
+       (declare (ignore added))
+       ;; check added against sorted-zip-pathnames
+       (and result
+            (null removed))))))
+
+(defun correct-zip-mirror (zip-file directory)
+  "Is the set of pathname in zip-file equal to the set of pathnames in
+directory? Does not compare file contents."
+  (sorted-pathname-lists-equal
+   (sorted-zip-pathnames zip-file)
+   (sorted-directory-pathnames directory)))
+
+(defun sorted-zip-pathnames (zip-file)
+  "Helper for correct-zip-mirror."
+  (let ((dir (merge-pathnames
+              (uiop:ensure-directory-pathname (pathname-name zip-file))
+              (uiop:pathname-directory-pathname zip-file)))
+        (paths ()))
+    (push dir paths)
+    (zip:do-zipfile-entries (name entry (zip:open-zipfile zip-file))
+      (push (merge-pathnames (pathname name) dir) paths))
+    (setf paths (sort paths #'string< :key #'namestring))
+    paths))
+
+(defun sorted-directory-pathnames (directory)
+  "Helper for correct-zip-mirror."
+  (let ((paths ()))
+    (collect-sub*directories 
+     directory 
+     (lambda (x) (declare (ignore x)) t)
+     (lambda (x) (declare (ignore x)) t)
+     (lambda (x) (push (pathname x) paths)
+             (loop for y in (directory-files x)
+                do (push (pathname y) paths))))
+     (setf paths (sort paths #'string< :key #'namestring))
+     paths))
+
+;; ----------------------------------------------------------------------------
+;; Extra: download-file
+;;
+;; untested
+;; ----------------------------------------------------------------------------
+
+(defaction download-file (url filespec)
+  "Downloads file url and saves it as file filespec."
+   
+  (:pre-condition
+   (declare (ignore url))
+   (not (directory-exists-p filespec)))
+  
+  (:body
+   (validate-access filespec)
+   (if (execute-p)
+       (trivial-download:download url filespec)
+       (create-file filespec)))
+  
+  (:post-condition
+   (declare (ignore url))
+   (lambda (result)
+     (declare (ignore result))
+     (file-exists-p filespec)))
+  
+  (:difference
+   (declare (ignore url))
+   (lambda (result)
+     (declare (ignore result))
+     (lambda (removed added)
+       (and (null removed)
+            (implies added
+                     (equal added (list (truename filespec)))))))))

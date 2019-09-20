@@ -69,12 +69,17 @@ function fun without any arguments."
 directories is evaluated and must return a list with absolute
 pathnames. An excepion is that a string is also allowed. The macro
 turns this into a list expression."
-  (let ((var (gensym)))
-  `(let ((*whitelist* (let ((,var ,directories))
-                        (append
-                         (if (listp ,var) ,var (list ,var))
-                         *whitelist*))))
-     ,@body)))
+  (let ((var (gensym))
+        (lst (gensym))
+        (lp (gensym)))
+    `(let ((,var ,directories))
+       (let ((,lst (if (listp ,var) ,var (list ,var))))
+         (let ((*whitelist* (append ,lst *whitelist*)))
+;;           (when (simulate-p)
+;;             (loop for ,lp in ,lst
+;;                do (ensure-directories-exist ,lp)
+;;                do (populate-file-system-from-disk *sandbox* ,lp)))
+           ,@body)))))
 
 (defmacro with-sandbox ((directory &key
                                    (kind :both)
@@ -86,24 +91,26 @@ turns this into a list expression."
                         &body body)
   "Simulates and/or executes body with in a sandbox for
 directory. keyword kind must be one of :simulate :execute or :both."
-  (let ((dir (gensym "DIR")))
+  (let ((dir (gensym "DIR"))
+        (dirs (gensym "DIRS")))
     `(let ((,dir ,directory))
-       (let ((*test-pre* ,test-pre)
-             (*test-post* ,test-post)
-             (*test-diff* ,test-diff)
-             (*confine* ,confine)
-             (*whitelist* (cons ,dir *whitelist*)))
-         (run-sandbox-body ,dir ,kind (lambda () ,@body) :verbose ,verbose)))))
+       (let ((,dirs (if (listp ,dir) ,dir (list ,dir))))
+         (let ((*test-pre* ,test-pre)
+               (*test-post* ,test-post)
+               (*test-diff* ,test-diff)
+               (*confine* ,confine)
+               (*whitelist* (append ,dirs *whitelist*)))
+           (run-sandbox-body ,dirs ,kind (lambda () ,@body) :verbose ,verbose))))))
 
-(defun run-sandbox-body (dir kind body &key verbose)
+(defun run-sandbox-body (dirs kind body &key verbose)
   "Helper for with-sandbox."
-  (unless (uiop:directory-pathname-p dir)
-    (error "Arg ~A of with-sandbox is not a directory." dir))
+  ;;(unless (uiop:directory-pathname-p dir)
+    ;;(error "Arg ~A of with-sandbox is not a directory." dir))
   (ecase kind
     (:simulate
      (when verbose
        (format t "~2%* Running simulation...~%"))
-     (let ((*sandbox* (make-populated-sandbox dir)))
+     (let ((*sandbox* (make-populated-sandbox dirs)))
        (simulate-plan body))
      (when verbose
        (format t "~2%Simulation successful.~%")))
@@ -112,7 +119,7 @@ directory. keyword kind must be one of :simulate :execute or :both."
     (:both
      (when verbose
        (format t "~2%* Running simulation...~%"))
-     (let ((*sandbox* (make-populated-sandbox dir)))
+     (let ((*sandbox* (make-populated-sandbox dirs)))
        (simulate-plan body))
      (when verbose
        (format t "~2%* Simulation successful, executing for real...~%"))

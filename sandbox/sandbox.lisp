@@ -73,17 +73,23 @@ partitions, for example '(\"C:\" \"D:\")."
      do (add-root sandbox name (get-universal-time))
      finally (return sandbox)))
 
-(defun make-populated-sandbox (pathspec)
-  "Creates a sandbox filled with the files from disk in directory
-pathspec."
-  (let ((pathname (pathname pathspec)))
-    (unless (uiop:directory-pathname-p pathname)
-      (error
-       "Pathname~%  ~A~%is not a valid directory for make-sandbox"
-       pathname))
-    (let ((sandbox (make-empty-sandbox (list (path-root pathname)))))
-      (populate-file-system-from-disk sandbox pathname)
-      sandbox)))
+(defun make-populated-sandbox (directories)
+  "Creates a sandbox filled with the files from disk in the
+directories."
+  (loop
+     with pathnames = (mapcar #'pathname directories)
+     with sandbox = (make-empty-sandbox
+                     (remove-duplicates
+                      (mapcar #'path-root pathnames)
+                      :test #'string-equal))
+     for pathname in pathnames
+     do (unless (uiop:directory-pathname-p pathname)
+          (error
+           "Pathname~%  ~A~%is not a valid directory for make-sandbox"
+           pathname))
+     do (ensure-sandbox-dir sandbox pathname)
+     do (populate-file-system-from-disk sandbox pathname)
+     finally (return sandbox)))
 
 (defun copy-sandbox (sandbox)
   "A deep copy of sandbox. The file system in the copy shares nothing

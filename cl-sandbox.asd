@@ -31,7 +31,9 @@
   :serial t
   :depends-on
   (:uiop
-   :trivial-gray-streams)
+   :trivial-gray-streams
+   :trivial-download
+   :zip)
   :components
   ((:file "package"                 :pathname "package")
    (:file "prelude"                 :pathname "prelude")

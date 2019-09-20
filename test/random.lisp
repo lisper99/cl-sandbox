@@ -297,7 +297,8 @@ created with function random-path."
   (close (open path
                :direction :output
                :if-does-not-exist :create
-               :if-exists nil)))
+               ;;:if-exists nil
+               )))
 
 ;; ----------------------------------------------------------------------------
 ;; Validators for random-delete-directory-tree-action

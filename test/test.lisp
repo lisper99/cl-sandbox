@@ -76,7 +76,7 @@ original."
       (let ((random-fs (random-sandbox dir)))
         (mirror-file-system-to-disk random-fs)
         (format t "~2%Mirror written on disk, reloading...")
-        (let ((reloaded (make-populated-sandbox dir)))
+        (let ((reloaded (make-populated-sandbox (list dir))))
           (format t "~2%Mirror reloaded from disk")
           (multiple-value-bind (okay)
               (file-system-equal random-fs reloaded)

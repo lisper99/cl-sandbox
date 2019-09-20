@@ -195,9 +195,13 @@ to get an absolute directory."
 (defun subpathp* (maybe-subpath base-pathname)
   "Wrapper around UIOP:SUBPATHP that can handle relative
 pathnames. Sandboxable."
-  (uiop:subpathp
-   (absolute-pathname (pathname maybe-subpath))
-   (absolute-pathname (pathname base-pathname))))
+  (or
+   (uiop:subpathp
+    (absolute-pathname (pathname maybe-subpath))
+    (absolute-pathname (pathname base-pathname)))
+   (uiop:pathname-equal
+    (absolute-pathname (pathname maybe-subpath))
+    (absolute-pathname (pathname base-pathname)))))
 
 (defun vary-file-type (file type)
   (merge-pathnames (make-pathname :name (pathname-name file) :type type) file))
