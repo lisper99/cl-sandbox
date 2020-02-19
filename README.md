@@ -131,23 +131,17 @@ against this whitelist and throws an error if a path is not a subpath
 of one of `*whitelist*`'s paths.
 
 Macro `with-sandbox` adds the directory that was passed to it to the
-whitelist.  With macro `with-access` extra directories can be
-added. For example in the following code function `copy-file` has
-access to `dir-a` and `dir-b`.
+whitelist. For performance and security reasons it is best to limit 
+access to directories as deep as possible. Extra directories can always
+be added locally by nested use of `with-sandbox`. For example in the
+following code function `copy-file` has access to `dir-a` and `dir-b`.
 
 ```
 (cl-sandbox:with-sandbox (dir-a)
-  (cl-sandbox:with-access dir-b
+  (cl-sandbox:with-sandbox (dir-b)
     (cl-sandbox:copy-file (merge-pathnames "foo.lisp" dir-a)
                           (merge-pathnames "foo.lisp" dir-b)))
 ```
-
-Macro `with-access` is useful to give extra access without simply
-giving a less restrictive path to `with-sandbox`. For performance and
-security reasons it is best to limit access to directories as deep as
-possible. With macro `with-access` extra access is possible if
-needed. Use `*white-list*` directly for even more control.
-
 
 
 ### Define Your Own Contracts
@@ -342,13 +336,6 @@ needs to remember whether the file existed or not.
 
 
 
-### Random Testing
-
-The package contains a test driver for automated random testing. This
-is (not yet) exported. See directory /cl-sandbox/test/ in the source code.
-
-
-
 ### List of Shadowed Functions
 
 Common Lisp actions 
@@ -405,6 +392,13 @@ Uiop observers
 * `subdirectories`
 * `truename*`
 * `truenamize`
+
+
+
+### Random Testing
+
+The package contains a test driver for automated random testing. This
+is (not yet) exported. See directory /cl-sandbox/test/ in the source code.
 
 
 
