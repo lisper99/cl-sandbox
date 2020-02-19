@@ -340,6 +340,11 @@ sorted-pathname-lists-equal."
          (lambda (x) (declare (ignore x)) t)
          (lambda (x) (push (pathname x) paths)
                  (loop for y in (directory-files x)
+                    unless
+                      #+ccl (uiop:string-prefix-p "fuse_hidden" 
+                                                  (pathname-type y))
+                      #-ccl (uiop:string-prefix-p ".fuse_hidden"
+                                                  (pathname-name y))
                     do (push (pathname y) paths))))
      finally
      (setf paths (sort paths #'string< :key #'namestring))

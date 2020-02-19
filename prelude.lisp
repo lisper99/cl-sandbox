@@ -63,10 +63,9 @@
 ;; Other globals
 ;; ----------------------------------------------------------------------------
 
-(defvar *opened-test-streams* ()
-  "All streams that have been opened during a random testing
-  run. Closed streams are not removed from the list. Gets reset for
-  each test run. See function test-file-system-actions.")
+(defvar *open-streams* ()
+  "All open streams. Function open adds streams to this variable and
+  function close removes them.")
 
 (defvar *chosen-restart* nil
   "Restart chosen by the user when an error is caught by the debugger

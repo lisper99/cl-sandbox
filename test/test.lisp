@@ -276,32 +276,32 @@ original."
                                  (mode :simulate)
                                  (verbosity 1)
                                  (max-attempts 100000)
-                                 (target 100))
-  "Sets up an environment for function test-actions and calls it."
-  (let* ((*sandbox* (make-empty-sandbox (list (path-root directory))))
-         (*simulate* (ecase mode
-                       (:simulate t)
-                       (:execute nil)))
-         (dir (fresh-test-dir "action-test/random" :directory directory))
+                                             (target 100))
+
+  (let* ((dir (fresh-test-dir "action-test/random" :directory directory))
          (scenario-dir (merge-pathnames "scenario/" directory))
-         (*whitelist* (list dir))
          (*default-pathname-defaults* (pathname dir)))
-    (format t "~%Creating test directory ~A~%" dir)
-    (ensure-directories-exist dir)
-    (format t "~%Ensuring real scenario directory ~A~%" scenario-dir)
-    (let ((*simulate* nil))
-      (with-access scenario-dir
-        (ensure-directories-exist scenario-dir)))
-    (format t "~%Current directory is ~A~%" (getcwd))
-    (fill-directory-randomly dir)
-    (let ((*action-log* (snapshot-as-action-log (take-snapshot))))
-      (test-actions dir scenario-dir
-                    :target target
-                    :verbosity verbosity
-                    :max-attempts max-attempts
-                    :generator 'random-action
-                    :test-post t
-                    :test-diff t)))
+    (with-sandbox (dir
+                   :kind mode
+                   :test-pre nil
+                   :test-post nil
+                   :test-diff nil)
+      (format t "~%Creating test directory ~A~%" dir)
+      (ensure-directories-exist dir)
+      (format t "~%Ensuring real scenario directory ~A~%" scenario-dir)
+      (with-sandbox (scenario-dir
+                     :kind :execute)
+        (ensure-directories-exist scenario-dir))
+      (format t "~%Current directory is ~A~%" (getcwd))
+      (fill-directory-randomly dir)
+      (let ((*action-log* (snapshot-as-action-log (take-snapshot))))
+        (test-actions dir scenario-dir
+                      :target target
+                      :verbosity verbosity
+                      :max-attempts max-attempts
+                      :generator 'random-action
+                      :test-post t
+                      :test-diff t))))
   (values))
 
 (defun test-actions (directory scenario-directory &key

@@ -64,48 +64,48 @@ function fun without any arguments."
 ;; Macros with-access and with-sandbox
 ;; ----------------------------------------------------------------------------
 
-(defmacro with-access (directories &body body)
-  "Allows access to directory while evaluating body. Argument
-directories is evaluated and must return a list with absolute
-pathnames. An excepion is that a string is also allowed. The macro
-turns this into a list expression."
-  (let ((var (gensym))
-        (lst (gensym))
-        (lp (gensym)))
-    `(let ((,var ,directories))
-       (let ((,lst (if (listp ,var) ,var (list ,var))))
-         (let ((*whitelist* (append ,lst *whitelist*)))
-;;           (when (simulate-p)
-;;             (loop for ,lp in ,lst
-;;                do (ensure-directories-exist ,lp)
-;;                do (populate-file-system-from-disk *sandbox* ,lp)))
-           ,@body)))))
+(defmacro with-access (directory &body body)
+  "Gives access to the directory or directories. Runs body with
+directory added to *whitelist*. Argument directory can also be a list
+in which case it is appended."
+  (let ((var (gensym)))
+    `(let ((,var ,directory))
+       (let ((*whitelist* (if (listp ,var)
+                              (append ,var *whitelist*)
+                              (cons ,var *whitelist*))))
+         ,@body))))
 
 (defmacro with-sandbox ((directory &key
                                    (kind :both)
                                    (test-pre '*test-pre*)
                                    (test-post '*test-post*)
                                    (test-diff '*test-diff*)
+                                   (close-streams t)
                                    (confine '*confine*)
                                    (verbose t))
                         &body body)
   "Simulates and/or executes body with in a sandbox for
 directory. keyword kind must be one of :simulate :execute or :both."
   (let ((dir (gensym "DIR"))
-        (dirs (gensym "DIRS")))
+        (dirs (gensym "DIRS"))
+        (stream (gensym "STREAM")))
     `(let ((,dir ,directory))
        (let ((,dirs (if (listp ,dir) ,dir (list ,dir))))
          (let ((*test-pre* ,test-pre)
                (*test-post* ,test-post)
                (*test-diff* ,test-diff)
                (*confine* ,confine)
-               (*whitelist* (append ,dirs *whitelist*)))
-           (run-sandbox-body ,dirs ,kind (lambda () ,@body) :verbose ,verbose))))))
+               (*whitelist* (append ,dirs *whitelist*))
+               (*open-streams* ()))
+           (unwind-protect
+                (run-sandbox-body
+                 ,dirs ,kind (lambda () ,@body) :verbose ,verbose)
+             (when ,close-streams
+               (loop for ,stream in *open-streams*
+                  do (cl:close ,stream)))))))))
 
 (defun run-sandbox-body (dirs kind body &key verbose)
   "Helper for with-sandbox."
-  ;;(unless (uiop:directory-pathname-p dir)
-    ;;(error "Arg ~A of with-sandbox is not a directory." dir))
   (ecase kind
     (:simulate
      (when verbose

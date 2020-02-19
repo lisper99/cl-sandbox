@@ -183,12 +183,16 @@
   (:body
    (validate-access filename)
    (if (execute-p)
-       (cl:open filename
-                :direction direction
-                :element-type element-type
-                :if-exists if-exists
-                :if-does-not-exist if-does-not-exist
-                :external-format external-format)
+       (let ((stream
+              (cl:open filename
+                       :direction direction
+                       :element-type element-type
+                       :if-exists if-exists
+                       :if-does-not-exist if-does-not-exist
+                       :external-format external-format)))
+         (when stream
+           (setf *open-streams* (cons stream *open-streams*)))
+         stream)
        (sandbox-open *sandbox*
                      filename
                      :direction direction
@@ -230,9 +234,10 @@
    )
 
   (:body
-   (if (execute-p)
-       (cl:close stream :abort abort)
-       (sandbox-close *sandbox* stream :abort abort)))
+   (prog1 (if (execute-p)
+              (cl:close stream :abort abort)
+              (sandbox-close *sandbox* stream :abort abort))
+     (setf *open-streams* (remove stream *open-streams*))))
 
   (:post-condition
    (declare (ignore abort))
@@ -540,8 +545,7 @@
    (and
     (file-exists-p from)
     (not (open-file-p from))
-    ;; Or this for transaction behavior
-    (ensureable (uiop:pathname-parent-directory-pathname to))
+    (directory-exists-p (uiop:pathname-directory-pathname to))
     (uiop:file-pathname-p to)
     (not (probe-file to))))
   
@@ -549,11 +553,9 @@
    (validate-access to)
    (validate-access from)
    (if (execute-p)
-       (if nil
-           (handler-case
-               (progn (uiop:copy-file from to) t)
-             (file-error () nil))
-           (uiop:copy-file from to))
+       (handler-case
+           (progn (uiop:copy-file from to) t)
+         (file-error () nil))
        (sandbox-copy-file *sandbox* from to)))
   
   (:post-condition
@@ -826,64 +828,6 @@
                 (equal added (list new-truename)))
                (equal removed (list old-truename)))))))))
 
-(defaction logged-open
-    (filename 
-     &key
-     (direction :input)
-     (element-type 'base-char)
-     (if-exists (if (eq (pathname-version filename) :newest)
-                    :new-version
-                    :error))
-     (if-does-not-exist (cond ((eq direction :probe)
-                               nil)
-                              ((or (eq direction :input)
-                                   (eq if-exists :overwrite)
-                                   (eq if-exists :append))
-                               :error)
-                              (t :create)))
-     (external-format :default))
-  "Alternative to function open that stores the opened stream in
-global *opened-test-streams*."
-   
-  (:pre-condition
-   (test-pre-condition
-    'open filename
-    :direction direction
-    :element-type element-type
-    :if-exists if-exists
-    :if-does-not-exist if-does-not-exist
-    :external-format external-format))
-  
-  (:body
-   (let ((stream (open filename
-                       :direction direction
-                       :element-type element-type
-                       :if-exists if-exists
-                       :if-does-not-exist if-does-not-exist
-                       :external-format external-format)))
-     (when (and (execute-p) stream)
-       (setf *opened-test-streams* (append *opened-test-streams*
-                                            (list stream))))
-     stream))
-  
-  (:post-condition
-   (post-condition-test
-    'open filename
-    :direction direction
-    :element-type element-type
-    :if-exists if-exists
-    :if-does-not-exist if-does-not-exist
-    :external-format external-format))
-  
-  (:difference
-   (difference-test
-    'open filename
-    :direction direction
-    :element-type element-type
-    :if-exists if-exists
-    :if-does-not-exist if-does-not-exist
-    :external-format external-format)))
-
 ;; ----------------------------------------------------------------------------
 ;; Extra: copy-directory
 ;; ----------------------------------------------------------------------------
@@ -896,17 +840,28 @@ global *opened-test-streams*."
         (not (probe-file to))))
   
   (:body
-   (collect-sub*directories
-    from
-    (lambda (dir) (declare (ignore dir)) t)
-    (lambda (dir) (declare (ignore dir)) t)
-    (lambda (dir)
-      (loop
-         with dst = (merge-pathnames (enough-namestring dir from) to)
-         initially (ensure-directories-exist dst)
-         for file in (directory-files dir)
-         for enough = (enough-namestring file from)
-         do (copy-file file (merge-pathnames enough to))))))
+   (if
+    #+windows (execute-p)
+    #-windows nil
+    (progn
+      (cl:ensure-directories-exist to)
+      (uiop:run-program (format nil "xcopy ~S ~S /E /q"
+                                (string-trim "/" (namestring (truename from)))
+                                (string-trim "/" (namestring (truename to))))
+                        :output t
+                        :error-output :output))
+    ;; This also works on Windows but is more expensive
+    (collect-sub*directories
+     from
+     (lambda (dir) (declare (ignore dir)) t)
+     (lambda (dir) (declare (ignore dir)) t)
+     (lambda (dir)
+       (loop
+          with dst = (merge-pathnames (enough-namestring dir from) to)
+          initially (ensure-directories-exist dst)
+          for file in (directory-files dir)
+          for enough = (enough-namestring file from)
+          do (copy-file file (merge-pathnames enough to)))))))
   
   (:post-condition
    (declare (ignore from to))

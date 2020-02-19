@@ -195,45 +195,12 @@ sandboxable getcwd."
      never (file-exists-p (string-right-trim "/" (namestring p)))))
 
 (defun open-file-p (file)
-  (when nil ;;(execute-p)
-    (unless (implies (open-file-p-alt file) (open-file-p-old-alt file))
-      (cerror "ignore" "open-file-p assert failure =>"))
-    (unless (implies (open-file-p-old-alt file) (open-file-p-alt file))
-      (cerror "ignore" "open-file-p assert failure <=")))
-  ;;(open-file-p-alt file)
-  (open-file-p-old file))
-
-(defun open-file-p-alt (file)
-  (if (execute-p)
-      (when (file-exists-p file)
-        (handler-case
-            (let ((stream (cl:open file :direction :output
-                                   :if-exists :append)))
-              (prog1 (null stream)
-                (when stream (close stream))))
-          (file-error () t)))
-      (open-file-p-old file)))
-  
-(defun open-file-p-old-alt (file)
   "Is FILE the pathname of some open stream. Sandboxable."
   (when (file-exists-p file)
     (loop
        with abs = (truename file)
        for stream in (if (execute-p)
-                         *opened-test-streams*
-                         (streams *sandbox*))
-       thereis (and
-                (open-stream-p stream)
-                (output-stream-p stream)
-                (equal (absolute-pathname (pathname stream)) abs)))))
-
-(defun open-file-p-old (file)
-  "Is FILE the pathname of some open stream. Sandboxable."
-  (when (file-exists-p file)
-    (loop
-       with abs = (truename file)
-       for stream in (if (execute-p)
-                         *opened-test-streams*
+                         *open-streams*
                          (streams *sandbox*))
        thereis (and
                 (open-stream-p stream)
